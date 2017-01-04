@@ -8,9 +8,25 @@ use strict;
 use warnings;
 use Log::Any '$log';
 
-use PERLANCAR::File::HomeDir qw(get_my_home_dir);
-
 our %SPEC;
+
+# from PERLANCAR::File::HomeDir 0.03, with minor modification
+sub get_my_home_dir {
+    if ($^O eq 'MSWin32') {
+        # File::HomeDir always uses exists($ENV{x}) first, does it want to avoid
+        # accidentally creating env vars?
+        return $ENV{HOME} if $ENV{HOME};
+        return $ENV{USERPROFILE} if $ENV{USERPROFILE};
+        return join($ENV{HOMEDRIVE}, "\\", $ENV{HOMEPATH})
+            if $ENV{HOMEDRIVE} && $ENV{HOMEPATH};
+    } else {
+        return $ENV{HOME} if $ENV{HOME};
+        my @pw;
+        eval { @pw = getpwuid($>) };
+        return $pw[7] if @pw;
+    }
+    die "Can't get home directory";
+}
 
 $SPEC{get_default_config_dirs} = {
     v => 1.1,
@@ -18,7 +34,7 @@ $SPEC{get_default_config_dirs} = {
 };
 sub get_default_config_dirs {
     my @dirs;
-    local $PERLANCAR::File::HomeDir::DIE_ON_FAILURE = 1;
+    #local $PERLANCAR::File::HomeDir::DIE_ON_FAILURE = 1;
     my $home = get_my_home_dir();
     if ($^O eq 'MSWin32') {
         push @dirs, $home;
