@@ -1,6 +1,6 @@
 Revision history for Perinci-CmdLine-Util-Config
 
-1.69    2017-01-04 (PERLANCAR) (unreleased)
+1.69    2017-01-04 (PERLANCAR)
 
         - First release, split from Perinci-CmdLine-Lite so it can be depended
           on by Perinci::CmdLine::Inline-generated scripts without having to

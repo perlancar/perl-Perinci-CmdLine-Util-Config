@@ -11,7 +11,7 @@ use Log::Any '$log';
 our %SPEC;
 
 # from PERLANCAR::File::HomeDir 0.03, with minor modification
-sub get_my_home_dir {
+sub _get_my_home_dir {
     if ($^O eq 'MSWin32') {
         # File::HomeDir always uses exists($ENV{x}) first, does it want to avoid
         # accidentally creating env vars?
@@ -35,7 +35,7 @@ $SPEC{get_default_config_dirs} = {
 sub get_default_config_dirs {
     my @dirs;
     #local $PERLANCAR::File::HomeDir::DIE_ON_FAILURE = 1;
-    my $home = get_my_home_dir();
+    my $home = _get_my_home_dir();
     if ($^O eq 'MSWin32') {
         push @dirs, $home;
     } else {
