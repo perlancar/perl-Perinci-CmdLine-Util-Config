@@ -105,7 +105,7 @@ sub read_config {
         log_trace "[pericmd] Reading config file '%s' ...", $path;
         my $j = 0;
         $section_read_order{GLOBAL} = [$i, $j++];
-        my @file_sections;
+        my @file_sections = ("GLOBAL");
         my $hoh = $reader->read_file(
             $path,
             sub {
