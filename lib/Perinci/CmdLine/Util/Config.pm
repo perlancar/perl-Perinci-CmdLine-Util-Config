@@ -6,7 +6,7 @@ package Perinci::CmdLine::Util::Config;
 use 5.010001;
 use strict;
 use warnings;
-#use Log::Any '$log';
+use Log::ger;
 
 our %SPEC;
 
@@ -51,6 +51,9 @@ $SPEC{read_config} = {
         config_filename => {},
         config_dirs     => {},
         program_name    => {},
+        # TODO: hook_file
+        hook_section    => {},
+        # TODO: hook_param?
     },
 };
 sub read_config {
@@ -94,28 +97,46 @@ sub read_config {
     my %res;
     my @read;
     my %section_read_order;
+  FILE:
     for my $i (0..$#{$paths}) {
         my $path           = $paths->[$i];
         my $filename = $path; $filename =~ s!.*[/\\]!!;
         my $wanted_section = $section_config_filename_map{$filename};
-        #$log->tracef("[pericmd] Reading config file '%s' ...", $path);
+        log_trace "[pericmd] Reading config file '%s' ...", $path;
         my $j = 0;
         $section_read_order{GLOBAL} = [$i, $j++];
+        my @file_sections;
         my $hoh = $reader->read_file(
             $path,
             sub {
                 my %args = @_;
                 return unless $args{event} eq 'section';
                 my $section = $args{section};
+                push @file_sections, $section
+                    unless grep {$section eq $_} @file_sections;
                 $section_read_order{$section} = [$i, $j++];
             },
         );
         push @read, $path;
-        for my $section (keys %$hoh) {
+      SECTION:
+        for my $section (@file_sections) {
             my $hash = $hoh->{$section};
 
             my $s = $section; $s =~ s/\s*\S*=.*\z//; # strip key=value pairs
             $s = 'GLOBAL' if $s eq '';
+
+            if ($args{hook_section}) {
+                my $res = $args{hook_section}->($section, $hash);
+                if ($res->[0] == 204) {
+                    log_trace "[pericmd] Skipped config section '$section' ".
+                        "in file '$path': hook_section returns 204";
+                    next SECTION;
+                } elsif ($res->[0] >= 400 && $res->[0] <= 599) {
+                    return [$res->[0], "Error when reading config file '$path'".
+                                ": $res->[1]"];
+                }
+            }
+
             next unless !defined($wanted_section) || $s eq $wanted_section;
 
             for (keys %$hash) {
@@ -190,18 +211,18 @@ sub get_args_from_config {
         # the matching subcommand
         if (length $scn) {
             if (length($sect_scn) && $sect_scn ne $scn) {
-                #$log->tracef(
-                #    "[pericmd] Skipped config section '%s' (%s)",
-                #    $section0, "subcommand does not match '$scn'",
-                #);
+                log_trace(
+                    "[pericmd] Skipped config section '%s' (%s)",
+                    $section0, "subcommand does not match '$scn'",
+                );
                 next;
             }
         } else {
             if (length $sect_scn) {
-                #$log->tracef(
-                #    "[pericmd] Skipped config section '%s' (%s)",
-                #    $section0, "only for a certain subcommand",
-                #);
+                log_trace(
+                    "[pericmd] Skipped config section '%s' (%s)",
+                    $section0, "only for a certain subcommand",
+                );
                 next;
             }
         }
@@ -210,19 +231,19 @@ sub get_args_from_config {
         # matching profile
         if (defined $profile) {
             if (defined($sect_profile) && $sect_profile ne $profile) {
-                #$log->tracef(
-                #    "[pericmd] Skipped config section '%s' (%s)",
-                #    $section0, "profile does not match '$profile'",
-                #);
+                log_trace(
+                    "[pericmd] Skipped config section '%s' (%s)",
+                    $section0, "profile does not match '$profile'",
+                );
                 next;
             }
             $found = 1 if defined($sect_profile) && $sect_profile eq $profile;
         } else {
             if (defined($sect_profile)) {
-                #$log->tracef(
-                #    "[pericmd] Skipped config section '%s' (%s)",
-                #    $section0, "only for a certain profile",
-                #);
+                log_trace(
+                    "[pericmd] Skipped config section '%s' (%s)",
+                    $section0, "only for a certain profile",
+                );
                 next;
             }
         }
@@ -230,10 +251,10 @@ sub get_args_from_config {
         # only use section marked with program=... if the program name matches
         if (defined($progn) && defined($keyvals{program})) {
             if ($progn ne $keyvals{program}) {
-                #$log->tracef(
-                #    "[pericmd] Skipped config section '%s' (%s)",
-                #    $section0, "program does not match '$progn'",
-                #);
+                log_trace(
+                    "[pericmd] Skipped config section '%s' (%s)",
+                    $section0, "program does not match '$progn'",
+                );
                 next;
             }
         }
@@ -243,43 +264,43 @@ sub get_args_from_config {
             my ($var, $val);
             if (($var, $val) = $env =~ /\A(\w+)=(.*)\z/) {
                 if (($ENV{$var} // '') ne $val) {
-                    #$log->tracef(
-                    #    "[pericmd] Skipped config section '%s' (%s)",
-                    #    $section0, "env $var has non-matching value '".
-                    #        ($ENV{$var} // '')."'",
-                    #);
+                    log_trace(
+                        "[pericmd] Skipped config section '%s' (%s)",
+                        $section0, "env $var has non-matching value '".
+                            ($ENV{$var} // '')."'",
+                    );
                     next;
                 }
             } elsif (($var, $val) = $env =~ /\A(\w+)!=(.*)\z/) {
                 if (($ENV{$var} // '') eq $val) {
-                    #$log->tracef(
-                    #    "[pericmd] Skipped config section '%s' (%s)",
-                    #    $section0, "env $var has that value",
-                    #);
+                    log_trace(
+                        "[pericmd] Skipped config section '%s' (%s)",
+                        $section0, "env $var has that value",
+                    );
                     next;
                 }
             } elsif (($var, $val) = $env =~ /\A(\w+)\*=(.*)\z/) {
                 if (index(($ENV{$var} // ''), $val) < 0) {
-                    #$log->tracef(
-                    #    "[pericmd] Skipped config section '%s' (%s)",
-                    #    $section0, "env $var has value '".
-                    #        ($ENV{$var} // '')."' which does not contain the ".
-                    #            "requested string"
-                    #);
+                    log_trace(
+                        "[pericmd] Skipped config section '%s' (%s)",
+                        $section0, "env $var has value '".
+                            ($ENV{$var} // '')."' which does not contain the ".
+                                "requested string"
+                    );
                     next;
                 }
             } else {
                 if (!$ENV{$env}) {
-                    #$log->tracef(
-                    #    "[pericmd] Skipped config section '%s' (%s)",
-                    #    $section0, "env $env is not set/true",
-                    #);
+                    log_trace(
+                        "[pericmd] Skipped config section '%s' (%s)",
+                        $section0, "env $env is not set/true",
+                    );
                     next;
                 }
             }
         }
 
-        #$log->tracef("[pericmd] Reading config section '%s'", $section0);
+        log_trace("[pericmd] Reading config section '%s'", $section0);
 
         my $as = $meta->{args} // {};
         for my $k (keys %{ $conf->{$section0} }) {
@@ -315,8 +336,8 @@ sub get_args_from_config {
             }
         }
     }
-    #$log->tracef("[pericmd] Seen config profiles: %s",
-    #             [sort keys %seen_profiles]);
+    log_trace("[pericmd] Seen config profiles: %s",
+              [sort keys %seen_profiles]);
 
     [200, "OK", $args, {'func.found'=>$found}];
 }
