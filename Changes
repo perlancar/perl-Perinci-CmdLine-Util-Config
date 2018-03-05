@@ -1,3 +1,8 @@
+1.721   2018-03-05 (PERLANCAR)
+
+	- [Bugfix] Regression: didn't iterate over all sections.
+
+
 1.720   2018-03-05 (PERLANCAR)
 
 	- Accept hook_section.
