@@ -8,6 +8,13 @@ use strict;
 use warnings;
 use Log::ger;
 
+use Exporter qw(import);
+our @EXPORT_OK = (
+    'get_default_config_dirs',
+    'read_config',
+    'get_args_from_config',
+);
+
 our %SPEC;
 
 # from PERLANCAR::File::HomeDir 0.03, with minor modification
