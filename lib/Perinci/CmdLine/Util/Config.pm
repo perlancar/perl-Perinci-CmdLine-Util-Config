@@ -1,6 +1,8 @@
 package Perinci::CmdLine::Util::Config;
 
+# AUTHORITY
 # DATE
+# DIST
 # VERSION
 
 use 5.010001;
@@ -127,6 +129,7 @@ sub read_config {
         push @read, $path;
       SECTION:
         for my $section (@file_sections) {
+            $res{$section} //= {};
             my $hash = $hoh->{$section};
 
             my $s = $section; $s =~ s/\s*\S*=.*\z//; # strip key=value pairs
@@ -159,10 +162,48 @@ sub read_config {
 
 $SPEC{get_args_from_config} = {
     v => 1.1,
+    description => <<'_',
+
+`config` is a HoH (hashes of hashrefs) produced by reading an INI (IOD)
+configuration file using modules like <pm:Config::IOD::Reader>.
+
+Hashref argument `args` will be set by parameters in `config`, while `plugins`
+will be set by parameters in `[plugin=...]` sections in `config`. For example,
+with this configuration:
+
+    arg1=val1
+    arg2=val2
+    -special_arg1=val3
+    -special_arg2=val4
+
+    [plugin=DumpArgs]
+    -event=before_validation
+
+    [plugin=Foo]
+    arg1=val1
+
+`args` will become:
+
+    {
+      arg1=>"val1",
+      arg2=>"val2",
+      -special_arg1=>"val3",
+      -special_arg2=>"val4",
+    }
+
+and `plugins` will become:
+
+    [
+      'DumpArgs@before_validation' => {},
+      Foo => {arg1=>val},
+    ]
+
+_
     args => {
         r => {},
         config => {},
-        args => {},
+        args => {schema=>'hash'},
+        plugins => {schema=>'array'},
         subcommand_name => {},
         config_profile => {},
         common_opts => {},
@@ -179,6 +220,7 @@ sub get_args_from_config {
     my $scn     = $fargs{subcommand_name} // '';
     my $profile = $fargs{config_profile};
     my $args    = $fargs{args} // {};
+    my $plugins = $fargs{plugins} // [];
     my $copts   = $fargs{common_opts};
     my $meta    = $fargs{meta};
     my $found;
@@ -213,6 +255,7 @@ sub get_args_from_config {
 
         my $sect_scn     = $keyvals{subcommand} // '';
         my $sect_profile = $keyvals{profile};
+        my $sect_plugin  = $keyvals{plugin};
 
         # if there is a subcommand name, use section with no subcommand=... or
         # the matching subcommand
@@ -309,42 +352,59 @@ sub get_args_from_config {
 
         log_trace("[pericmd] Reading config section '%s'", $section0);
 
-        my $as = $meta->{args} // {};
-        for my $k (keys %{ $conf->{$section0} }) {
-            my $v = $conf->{$section0}{$k};
-            if ($copts->{$k} && $copts->{$k}{is_settable_via_config}) {
-                my $sch = $copts->{$k}{schema};
-                if ($sch) {
-                    require Data::Sah::Resolve;
-                    my $rsch = Data::Sah::Resolve::resolve_schema($sch);
+        if (defined $sect_plugin) {
+            # TODO: check against metadata in plugin
+            my $event;
+            my $prio;
+            my $plugin_args = {};
+            for my $k (keys %{ $conf->{$section0} }) {
+                my $v = $conf->{$section0}{$k};
+                if    ($k eq '-event') { $event = $v }
+                elsif ($k eq '-prio')  { $prio  = $v }
+                else { $plugin_args->{$k} = $v }
+            }
+            push @$plugins, $sect_plugin .
+                (defined $event || defined $prio ?
+                 '@'.($event // '') . (defined $prio ? "\@$prio" : "") : '');
+            push @$plugins, $plugin_args;
+        } else {
+            my $as = $meta->{args} // {};
+            for my $k (keys %{ $conf->{$section0} }) {
+                my $v = $conf->{$section0}{$k};
+                if ($copts->{$k} && $copts->{$k}{is_settable_via_config}) {
+                    my $sch = $copts->{$k}{schema};
+                    if ($sch) {
+                        require Data::Sah::Resolve;
+                        my $rsch = Data::Sah::Resolve::resolve_schema($sch);
+                        # since IOD might return a scalar or an array (depending on
+                        # whether there is a single param=val or multiple param=
+                        # lines), we need to arrayify the value if the argument is
+                        # expected to be an array.
+                        if (ref($v) ne 'ARRAY' && $rsch->[0] eq 'array') {
+                            $v = [$v];
+                        }
+                    }
+                    $copts->{$k}{handler}->(undef, $v, $r);
+                } else {
+                    # when common option clashes with function argument name,
+                    # user can use NAME.arg to refer to function argument.
+                    $k =~ s/\.arg\z//;
+
                     # since IOD might return a scalar or an array (depending on
                     # whether there is a single param=val or multiple param=
                     # lines), we need to arrayify the value if the argument is
                     # expected to be an array.
-                    if (ref($v) ne 'ARRAY' && $rsch->[0] eq 'array') {
-                        $v = [$v];
+                    if (ref($v) ne 'ARRAY' && $as->{$k} && $as->{$k}{schema}) {
+                        require Data::Sah::Resolve;
+                        my $rsch = Data::Sah::Resolve::resolve_schema($as->{$k}{schema});
+                        if ($rsch->[0] eq 'array') {
+                            $v = [$v];
+                        }
                     }
+                    $args->{$k} = $v;
                 }
-                $copts->{$k}{handler}->(undef, $v, $r);
-            } else {
-                # when common option clashes with function argument name, user
-                # can use NAME.arg to refer to function argument.
-                $k =~ s/\.arg\z//;
-
-                # since IOD might return a scalar or an array (depending on
-                # whether there is a single param=val or multiple param= lines),
-                # we need to arrayify the value if the argument is expected to
-                # be an array.
-                if (ref($v) ne 'ARRAY' && $as->{$k} && $as->{$k}{schema}) {
-                    require Data::Sah::Resolve;
-                    my $rsch = Data::Sah::Resolve::resolve_schema($as->{$k}{schema});
-                    if ($rsch->[0] eq 'array') {
-                        $v = [$v];
-                    }
-                }
-                $args->{$k} = $v;
-            }
-        }
+            } # for params in section
+        } # if for plugin
     }
     log_trace("[pericmd] Seen config profiles: %s",
               [sort keys %seen_profiles]);
