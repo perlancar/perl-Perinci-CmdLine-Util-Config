@@ -375,12 +375,12 @@ sub get_args_from_config {
                     my $sch = $copts->{$k}{schema};
                     if ($sch) {
                         require Data::Sah::Resolve;
-                        my $rsch = Data::Sah::Resolve::resolve_schema($sch);
+                        my $res = Data::Sah::Resolve::resolve_schema($sch);
                         # since IOD might return a scalar or an array (depending on
                         # whether there is a single param=val or multiple param=
                         # lines), we need to arrayify the value if the argument is
                         # expected to be an array.
-                        if (ref($v) ne 'ARRAY' && $rsch->[0] eq 'array') {
+                        if (ref($v) ne 'ARRAY' && $res->{type} eq 'array') {
                             $v = [$v];
                         }
                     }
@@ -396,8 +396,8 @@ sub get_args_from_config {
                     # expected to be an array.
                     if (ref($v) ne 'ARRAY' && $as->{$k} && $as->{$k}{schema}) {
                         require Data::Sah::Resolve;
-                        my $rsch = Data::Sah::Resolve::resolve_schema($as->{$k}{schema});
-                        if ($rsch->[0] eq 'array') {
+                        my $res = Data::Sah::Resolve::resolve_schema($as->{$k}{schema});
+                        if ($res->{type} eq 'array') {
                             $v = [$v];
                         }
                     }
